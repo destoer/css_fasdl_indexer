@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"math/rand"
+	"sync"
 
 	// xpath / html
 	"github.com/antchfx/htmlquery"
@@ -111,6 +112,19 @@ func rand_time(t int) float64 {
 	return x;
 }
 
+var wg sync.WaitGroup;
+
+
+func DownloadMap(client *http.Client,link string, fast_dl_link string) {
+	defer wg.Done();
+
+	fmt.Printf("fetching %s\n",link);
+
+	arr := SendGetReqBytes(client,fast_dl_link + link);
+	WriteToFileBytes(link,arr);
+	fmt.Printf("wrote: %s\n",link);
+	time.Sleep(time.Duration(rand_time(2)) * time.Second);
+}
 func main() {
 
 
@@ -134,6 +148,7 @@ func main() {
 	fast_dl_link := args[1];
 	fmt.Printf("Scraping %s\n",fast_dl_link);
 
+	// pull the file list
 	resp := SendGetReq(client,fast_dl_link);
 	doc, err := htmlquery.Parse(strings.NewReader(string(resp)));
 	if(err != nil) {
@@ -141,16 +156,26 @@ func main() {
 		os.Exit(1);
 	}
 	
-
+	// get all the hrefs with xpath
 	list := htmlquery.Find(doc,"//a[@href]");
 
+	
+	maps := make([]string,0)
+	
+	// filter by .bsp files 
 	for i := 0; i < len(list); i++ {
 		link := htmlquery.SelectAttr(list[i],"href");
 		if(strings.Contains(link,".bsp") && !fileExists(link)) {
-			arr := SendGetReqBytes(client,fast_dl_link + link);
-			WriteToFileBytes(link,arr);
-			fmt.Printf("wrote: %s\n",link);
-			time.Sleep(time.Duration(rand_time(2)) * time.Second);
+			maps = append(maps,link);
 		}
 	}
+	
+	wg.Add(len(maps));
+	
+	// use links and dl every map to a file
+	for i := 0; i < len(maps); i++ {
+		go DownloadMap(client,maps[i],fast_dl_link);
+	}
+	
+	wg.Wait();
 }
